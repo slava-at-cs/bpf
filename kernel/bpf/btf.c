@@ -5349,6 +5349,22 @@ static s32 btf_check_meta(struct btf_verifier_env *env,
 	return saved_meta_left - meta_left;
 }
 
+static void __maybe_unused
+btf_inject_invalid_ptr_func_param(struct btf_verifier_env *env);
+static void __maybe_unused
+btf_inject_invalid_ptr_datasec_param(struct btf_verifier_env *env);
+static void __maybe_unused
+btf_inject_invalid_ptr_var_param(struct btf_verifier_env *env);
+static void __maybe_unused
+btf_inject_pre_meta_invalid_ptr_func_param(struct btf_verifier_env *env,
+					     struct btf_type *t);
+static void __maybe_unused
+btf_inject_pre_meta_invalid_ptr_datasec_param(struct btf_verifier_env *env,
+						struct btf_type *t);
+static void __maybe_unused
+btf_inject_pre_meta_invalid_ptr_var_param(struct btf_verifier_env *env,
+					    struct btf_type *t);
+
 static int btf_check_all_metas(struct btf_verifier_env *env)
 {
 	struct btf *btf = env->btf;
@@ -5364,6 +5380,11 @@ static int btf_check_all_metas(struct btf_verifier_env *env)
 		struct btf_type *t = cur;
 		s32 meta_size;
 
+		/* Optional pre-meta hooks; call one here when needed. */
+		// btf_inject_pre_meta_invalid_ptr_func_param(env, t);
+		btf_inject_pre_meta_invalid_ptr_datasec_param(env, t);
+		// btf_inject_pre_meta_invalid_ptr_var_param(env, t);
+
 		meta_size = btf_check_meta(env, t, end - cur);
 		if (meta_size < 0)
 			return meta_size;
@@ -5373,7 +5394,273 @@ static int btf_check_all_metas(struct btf_verifier_env *env)
 		env->log_type_id++;
 	}
 
+	//* Optional post-meta hooks; call one here when needed. */
+	// btf_inject_invalid_ptr_func_param(env);
+	// btf_inject_invalid_ptr_datasec_param(env);
+	// btf_inject_invalid_ptr_var_param(env);
+
 	return 0;
+}
+
+static void __maybe_unused
+btf_inject_invalid_ptr_func_param(struct btf_verifier_env *env)
+{
+	struct btf *btf = env->btf;
+	const struct btf_type *func, *proto, *arg_type;
+	const char *func_name;
+	struct btf_param *args;
+	u32 i, func_id;
+
+	//dump_stack();
+
+	if (!btf->kernel_btf)
+		return;
+
+	//printk("!!! -1\n");
+
+	for (i = 1; i < btf->nr_types; i++) {
+		func = btf->types[i];
+		if (!btf_type_is_func(func))
+			continue;
+
+		//printk("!!! 0\n");
+
+		func_name = __btf_name_by_offset(btf, func->name_off);
+		if (strcmp(func_name, "bpf_fentry_test_invalid_ptr_func"))
+			continue;
+
+		//printk("!!! 1\n");
+
+		proto = btf_type_by_id(btf, func->type);
+		if (!proto || !btf_type_is_func_proto(proto) || !btf_type_vlen(proto))
+			return;
+
+		//printk("!!! 2\n");
+
+		args = (struct btf_param *)(proto + 1);
+		arg_type = btf_type_by_id(btf, args[0].type);
+		if (!arg_type || !btf_type_is_ptr(arg_type))
+			return;
+
+		//printk("!!! 3\n");
+
+		func_id = btf->start_id + i;
+		((struct btf_type *)arg_type)->type = func_id;
+		btf_verifier_log(env,
+				 "Injected invalid PTR->FUNC for '%s' arg#1\n",
+				 func_name);
+
+		dump_stack();
+		return;
+	}
+}
+
+static void __maybe_unused
+btf_inject_invalid_ptr_datasec_param(struct btf_verifier_env *env)
+{
+	struct btf *btf = env->btf;
+	const struct btf_type *func, *proto, *arg_type, *t;
+	const char *func_name;
+	struct btf_param *args;
+	u32 i, datasec_id = 0;
+
+	if (!btf->kernel_btf)
+		return;
+
+	for (i = 1; i < btf->nr_types; i++) {
+		t = btf->types[i];
+		if (btf_type_is_datasec(t)) {
+			datasec_id = btf->start_id + i;
+			break;
+		}
+	}
+	if (!datasec_id)
+		return;
+
+	for (i = 1; i < btf->nr_types; i++) {
+		func = btf->types[i];
+		if (!btf_type_is_func(func))
+			continue;
+
+		func_name = __btf_name_by_offset(btf, func->name_off);
+		if (strcmp(func_name, "bpf_fentry_test_invalid_ptr_func"))
+			continue;
+
+		proto = btf_type_by_id(btf, func->type);
+		if (!proto || !btf_type_is_func_proto(proto) || !btf_type_vlen(proto))
+			return;
+
+		args = (struct btf_param *)(proto + 1);
+		arg_type = btf_type_by_id(btf, args[0].type);
+		if (!arg_type || !btf_type_is_ptr(arg_type))
+			return;
+
+		((struct btf_type *)arg_type)->type = datasec_id;
+		btf_verifier_log(env,
+				 "Injected invalid PTR->DATASEC for '%s' arg#1\n",
+				 func_name);
+		return;
+	}
+}
+
+static void __maybe_unused
+btf_inject_invalid_ptr_var_param(struct btf_verifier_env *env)
+{
+	struct btf *btf = env->btf;
+	const struct btf_type *func, *proto, *arg_type, *t;
+	const char *func_name;
+	struct btf_param *args;
+	u32 i, var_id = 0;
+
+	if (!btf->kernel_btf)
+		return;
+
+	for (i = 1; i < btf->nr_types; i++) {
+		t = btf->types[i];
+		if (btf_type_is_var(t)) {
+			var_id = btf->start_id + i;
+			break;
+		}
+	}
+	if (!var_id)
+		return;
+
+	for (i = 1; i < btf->nr_types; i++) {
+		func = btf->types[i];
+		if (!btf_type_is_func(func))
+			continue;
+
+		func_name = __btf_name_by_offset(btf, func->name_off);
+		if (strcmp(func_name, "bpf_fentry_test_invalid_ptr_func"))
+			continue;
+
+		proto = btf_type_by_id(btf, func->type);
+		if (!proto || !btf_type_is_func_proto(proto) || !btf_type_vlen(proto))
+			return;
+
+		args = (struct btf_param *)(proto + 1);
+		arg_type = btf_type_by_id(btf, args[0].type);
+		if (!arg_type || !btf_type_is_ptr(arg_type))
+			return;
+
+		((struct btf_type *)arg_type)->type = var_id;
+		btf_verifier_log(env,
+				 "Injected invalid PTR->VAR for '%s' arg#1\n",
+				 func_name);
+		return;
+	}
+}
+
+static struct btf_type *__maybe_unused
+btf_pre_meta_get_target_arg0_ptr(struct btf *btf, struct btf_type *func,
+				 const char **func_name)
+{
+	const struct btf_type *proto, *arg_type;
+	const struct btf_param *args;
+
+	if (!btf_type_is_func(func))
+		return NULL;
+
+	*func_name = __btf_name_by_offset(btf, func->name_off);
+	if (strcmp(*func_name, "bpf_fentry_test_invalid_ptr_func"))
+		return NULL;
+
+	proto = btf_type_by_id(btf, func->type);
+	if (!proto || !btf_type_is_func_proto(proto) || !btf_type_vlen(proto))
+		return NULL;
+
+	args = (const struct btf_param *)(proto + 1);
+	arg_type = btf_type_by_id(btf, args[0].type);
+	if (!arg_type || !btf_type_is_ptr(arg_type))
+		return NULL;
+
+	return (struct btf_type *)arg_type;
+}
+
+static u32 __maybe_unused btf_pre_meta_find_first_kind_id(struct btf *btf,
+						  u32 kind)
+{
+	u32 i;
+
+	for (i = 1; i < btf->nr_types; i++) {
+		if (BTF_INFO_KIND(btf->types[i]->info) == kind)
+			return btf->start_id + i;
+	}
+
+	return 0;
+}
+
+static void __maybe_unused
+btf_inject_pre_meta_invalid_ptr_func_param(struct btf_verifier_env *env,
+					     struct btf_type *t)
+{
+	struct btf *btf = env->btf;
+	struct btf_type *arg_ptr;
+	const char *func_name;
+
+	if (!btf->kernel_btf)
+		return;
+
+	arg_ptr = btf_pre_meta_get_target_arg0_ptr(btf, t, &func_name);
+	if (!arg_ptr)
+		return;
+
+	arg_ptr->type = env->log_type_id;
+	btf_verifier_log(env,
+			 "Pre-meta injected invalid PTR->FUNC for '%s' arg#1\n",
+			 func_name);
+}
+
+static void __maybe_unused
+btf_inject_pre_meta_invalid_ptr_datasec_param(struct btf_verifier_env *env,
+						struct btf_type *t)
+{
+	struct btf *btf = env->btf;
+	struct btf_type *arg_ptr;
+	const char *func_name;
+	u32 datasec_id;
+
+	if (!btf->kernel_btf)
+		return;
+
+	arg_ptr = btf_pre_meta_get_target_arg0_ptr(btf, t, &func_name);
+	if (!arg_ptr)
+		return;
+
+	datasec_id = btf_pre_meta_find_first_kind_id(btf, BTF_KIND_DATASEC);
+	if (!datasec_id)
+		return;
+
+	arg_ptr->type = datasec_id;
+	btf_verifier_log(env,
+			 "Pre-meta injected invalid PTR->DATASEC for '%s' arg#1\n",
+			 func_name);
+}
+
+static void __maybe_unused
+btf_inject_pre_meta_invalid_ptr_var_param(struct btf_verifier_env *env,
+					    struct btf_type *t)
+{
+	struct btf *btf = env->btf;
+	struct btf_type *arg_ptr;
+	const char *func_name;
+	u32 var_id;
+
+	if (!btf->kernel_btf)
+		return;
+
+	arg_ptr = btf_pre_meta_get_target_arg0_ptr(btf, t, &func_name);
+	if (!arg_ptr)
+		return;
+
+	var_id = btf_pre_meta_find_first_kind_id(btf, BTF_KIND_VAR);
+	if (!var_id)
+		return;
+
+	arg_ptr->type = var_id;
+	btf_verifier_log(env,
+			 "Pre-meta injected invalid PTR->VAR for '%s' arg#1\n",
+			 func_name);
 }
 
 static bool btf_resolve_valid(struct btf_verifier_env *env,

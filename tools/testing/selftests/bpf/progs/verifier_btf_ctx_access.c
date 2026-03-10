@@ -77,4 +77,17 @@ __naked void ctx_access_const_void_pointer_accept(void)
 "	::: __clobber_all);
 }
 
+SEC("fentry/bpf_fentry_test_invalid_ptr_func")
+__description("btf_ctx_access reject injected PTR->FUNC parameter dereference")
+__failure __msg("R2 invalid mem access 'scalar'")
+__naked void ctx_access_injected_ptr_func_reject(void)
+{
+	asm volatile ("					\
+	r2 = *(u64 *)(r1 + 0);		/* load injected invalid PTR->FUNC argument */\
+	r0 = *(u64 *)(r2 + 0);		/* reject dereference: arg is treated as scalar */\
+	r0 = 0;						\
+	exit;						\
+"	::: __clobber_all);
+}
+
 char _license[] SEC("license") = "GPL";

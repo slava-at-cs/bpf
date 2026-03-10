@@ -542,6 +542,10 @@ struct bpf_fentry_test_t {
 	struct bpf_fentry_test_t *a;
 };
 
+struct bpf_fentry_test_invalid_t {
+	long v;
+};
+
 noinline int bpf_fentry_test7(struct bpf_fentry_test_t *arg)
 {
 	asm volatile ("" : "+r"(arg));
@@ -565,6 +569,11 @@ noinline int bpf_fentry_test10(const void *a)
 
 noinline void bpf_fentry_test_sinfo(struct skb_shared_info *sinfo)
 {
+}
+
+noinline void bpf_fentry_test_invalid_ptr_func(struct bpf_fentry_test_invalid_t *arg)
+{
+	asm volatile ("" : "+r"(arg));
 }
 
 __bpf_kfunc int bpf_modify_return_test(int a, int *b)
@@ -675,6 +684,7 @@ int bpf_prog_test_run_tracing(struct bpf_prog *prog,
 			      union bpf_attr __user *uattr)
 {
 	struct bpf_fentry_test_t arg = {};
+	struct bpf_fentry_test_invalid_t invalid_arg = {};
 	u16 side_effect = 0, ret = 0;
 	int b = 2, err = -EFAULT;
 	u32 retval = 0;
@@ -697,6 +707,8 @@ int bpf_prog_test_run_tracing(struct bpf_prog *prog,
 		    bpf_fentry_test9(&retval) != 0 ||
 		    bpf_fentry_test10((void *)0) != 0)
 			goto out;
+
+		bpf_fentry_test_invalid_ptr_func(&invalid_arg);
 		break;
 	case BPF_MODIFY_RETURN:
 		ret = bpf_modify_return_test(1, &b);
